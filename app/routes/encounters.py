@@ -146,7 +146,7 @@ async def update_encounter(enc_id: str, encounter: Encounter):
                 detail=f"Referenced Patient/{patient_id} does not exist",
             )
 
-        await conn.execute(
+        result = await conn.execute(
             """
             UPDATE encounters
             SET resource   = $2::jsonb,
@@ -158,6 +158,9 @@ async def update_encounter(enc_id: str, encounter: Encounter):
             resource_json,
             patient_id,
         )
+        # guard against concurrent delete between existence check and UPDATE
+        if int(result.split()[-1]) == 0:
+            raise _not_found(enc_id)
 
     return json.loads(resource_json)
 

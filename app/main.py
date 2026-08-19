@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="FHIR Patient API",
-    description="Async FHIR R4 API — Patient + Observation + Encounter resources",
+    description="Async FHIR R4B/R5-aligned API — Patient + Observation + Encounter resources",
     lifespan=lifespan,
 )
 

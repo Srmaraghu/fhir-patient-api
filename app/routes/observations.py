@@ -131,7 +131,6 @@ async def update_observation(obs_id: str, observation: Observation):
 
     pool = get_pool()
     async with pool.acquire() as conn:
-        # all checks + update in one connection — no TOCTOU window
         exists = await conn.fetchval(
             "SELECT 1 FROM observations WHERE id = $1", obs_id
         )
@@ -147,7 +146,7 @@ async def update_observation(obs_id: str, observation: Observation):
                 detail=f"Referenced Patient/{patient_id} does not exist",
             )
 
-        await conn.execute(
+        result = await conn.execute(
             """
             UPDATE observations
             SET resource   = $2::jsonb,
@@ -159,6 +158,9 @@ async def update_observation(obs_id: str, observation: Observation):
             resource_json,
             patient_id,
         )
+        # guard against concurrent delete between existence check and UPDATE
+        if int(result.split()[-1]) == 0:
+            raise _not_found(obs_id)
 
     return json.loads(resource_json)
 
