@@ -24,3 +24,17 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_observations_patient_id ON observations (patient_id);
 -- GIN index for JSONB queries on observations
 CREATE INDEX IF NOT EXISTS idx_observations_resource ON observations USING GIN (resource);
+
+CREATE TABLE IF NOT EXISTS encounters (
+    id            TEXT        PRIMARY KEY,          -- FHIR logical id (UUID)
+    patient_id    TEXT        NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    resource_type TEXT        NOT NULL DEFAULT 'Encounter',
+    resource      JSONB       NOT NULL,             -- full FHIR Encounter resource
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for fast patient-scoped queries: GET /Encounter?patient=<id>
+CREATE INDEX IF NOT EXISTS idx_encounters_patient_id ON encounters (patient_id);
+-- GIN index for JSONB queries on encounters
+CREATE INDEX IF NOT EXISTS idx_encounters_resource ON encounters USING GIN (resource);

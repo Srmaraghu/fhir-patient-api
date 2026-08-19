@@ -2,20 +2,20 @@ import uuid
 import json
 
 from fastapi import APIRouter, HTTPException, Response, status
-from fhir.resources.observation import Observation
+from fhir.resources.encounter import Encounter
 from fhir.resources.operationoutcome import OperationOutcome
 
 from app.database import get_pool
 
-router = APIRouter(prefix="/Observation", tags=["Observation"])
+router = APIRouter(prefix="/Encounter", tags=["Encounter"])
 
 
-def _not_found(obs_id: str) -> HTTPException:
+def _not_found(enc_id: str) -> HTTPException:
     outcome = OperationOutcome(
         issue=[{
             "severity": "error",
             "code": "not-found",
-            "details": {"text": f"Observation/{obs_id} not found"},
+            "details": {"text": f"Encounter/{enc_id} not found"},
         }]
     )
     return HTTPException(
@@ -38,11 +38,11 @@ def _bad_request(msg: str) -> HTTPException:
     )
 
 
-def _extract_patient_id(observation: Observation) -> str | None:
-    """Pull the patient id out of subject.reference e.g. 'Patient/abc-123'."""
-    if not observation.subject or not observation.subject.reference:
+def _extract_patient_id(encounter: Encounter) -> str | None:
+    """Pull patient id from subject.reference e.g. 'Patient/abc-123'."""
+    if not encounter.subject or not encounter.subject.reference:
         return None
-    ref = observation.subject.reference
+    ref = encounter.subject.reference
     if ref.startswith("Patient/"):
         return ref.split("/", 1)[1]
     return None
@@ -50,10 +50,10 @@ def _extract_patient_id(observation: Observation) -> str | None:
 
 # CREATE
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_observation(observation: Observation, response: Response):
-    patient_id = _extract_patient_id(observation)
+async def create_encounter(encounter: Encounter, response: Response):
+    patient_id = _extract_patient_id(encounter)
     if not patient_id:
-        raise _bad_request("Observation.subject.reference must be set to 'Patient/<id>'")
+        raise _bad_request("Encounter.subject.reference must be set to 'Patient/<id>'")
 
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -66,76 +66,76 @@ async def create_observation(observation: Observation, response: Response):
                 detail=f"Referenced Patient/{patient_id} does not exist",
             )
 
-        obs_id = str(uuid.uuid4())
-        observation.id = obs_id
-        resource_json = observation.model_dump_json()
+        enc_id = str(uuid.uuid4())
+        encounter.id = enc_id
+        resource_json = encounter.model_dump_json()
 
         await conn.execute(
             """
-            INSERT INTO observations (id, patient_id, resource_type, resource)
-            VALUES ($1, $2, 'Observation', $3::jsonb)
+            INSERT INTO encounters (id, patient_id, resource_type, resource)
+            VALUES ($1, $2, 'Encounter', $3::jsonb)
             """,
-            obs_id,
+            enc_id,
             patient_id,
             resource_json,
         )
 
-    response.headers["Location"] = f"/Observation/{obs_id}"
+    response.headers["Location"] = f"/Encounter/{enc_id}"
     return json.loads(resource_json)
 
 
 # READ
-@router.get("/{obs_id}", status_code=status.HTTP_200_OK)
-async def get_observation(obs_id: str):
+@router.get("/{enc_id}", status_code=status.HTTP_200_OK)
+async def get_encounter(enc_id: str):
     pool = get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT resource FROM observations WHERE id = $1", obs_id
+            "SELECT resource FROM encounters WHERE id = $1", enc_id
         )
 
     if not row:
-        raise _not_found(obs_id)
+        raise _not_found(enc_id)
 
     return json.loads(row["resource"])
 
 
-# LIST by patient  GET /Observation?patient=<id>
+# LIST  GET /Encounter?patient=<id>
 @router.get("", status_code=status.HTTP_200_OK)
-async def list_observations(patient: str | None = None):
+async def list_encounters(patient: str | None = None):
     """
-    GET /Observation             → all observations
-    GET /Observation?patient=id  → all observations for a patient
+    GET /Encounter             → all encounters
+    GET /Encounter?patient=id  → all encounters for a patient
     """
     pool = get_pool()
     async with pool.acquire() as conn:
         if patient:
             rows = await conn.fetch(
-                "SELECT resource FROM observations WHERE patient_id = $1",
-                patient,
+                "SELECT resource FROM encounters WHERE patient_id = $1", patient
             )
         else:
-            rows = await conn.fetch("SELECT resource FROM observations")
+            rows = await conn.fetch("SELECT resource FROM encounters")
 
     return [json.loads(r["resource"]) for r in rows]
 
 
 # UPDATE (full replace)
-@router.put("/{obs_id}", status_code=status.HTTP_200_OK)
-async def update_observation(obs_id: str, observation: Observation):
-    patient_id = _extract_patient_id(observation)
+@router.put("/{enc_id}", status_code=status.HTTP_200_OK)
+async def update_encounter(enc_id: str, encounter: Encounter):
+    patient_id = _extract_patient_id(encounter)
     if not patient_id:
-        raise _bad_request("Observation.subject.reference must be set to 'Patient/<id>'")
+        raise _bad_request("Encounter.subject.reference must be set to 'Patient/<id>'")
 
-    observation.id = obs_id
-    resource_json = observation.model_dump_json()
+    encounter.id = enc_id
+    resource_json = encounter.model_dump_json()
 
     pool = get_pool()
     async with pool.acquire() as conn:
+        # verify encounter exists and patient exists in one connection
         exists = await conn.fetchval(
-            "SELECT 1 FROM observations WHERE id = $1", obs_id
+            "SELECT 1 FROM encounters WHERE id = $1", enc_id
         )
         if not exists:
-            raise _not_found(obs_id)
+            raise _not_found(enc_id)
 
         patient_exists = await conn.fetchval(
             "SELECT 1 FROM patients WHERE id = $1", patient_id
@@ -148,33 +148,33 @@ async def update_observation(obs_id: str, observation: Observation):
 
         result = await conn.execute(
             """
-            UPDATE observations
+            UPDATE encounters
             SET resource   = $2::jsonb,
                 patient_id = $3,
                 updated_at = NOW()
             WHERE id = $1
             """,
-            obs_id,
+            enc_id,
             resource_json,
             patient_id,
         )
         # guard against concurrent delete between existence check and UPDATE
         if int(result.split()[-1]) == 0:
-            raise _not_found(obs_id)
+            raise _not_found(enc_id)
 
     return json.loads(resource_json)
 
 
 # DELETE
-@router.delete("/{obs_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_observation(obs_id: str):
+@router.delete("/{enc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_encounter(enc_id: str):
     pool = get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
-            "DELETE FROM observations WHERE id = $1", obs_id
+            "DELETE FROM encounters WHERE id = $1", enc_id
         )
 
     if int(result.split()[-1]) == 0:
-        raise _not_found(obs_id)
+        raise _not_found(enc_id)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
