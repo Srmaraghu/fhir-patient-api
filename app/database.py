@@ -4,12 +4,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# module-level pool, initialised on startup
 _pool: asyncpg.Pool | None = None
 
 
 async def create_pool() -> asyncpg.Pool:
-    """Create and return a connection pool. Called once at app startup."""
     global _pool
     _pool = await asyncpg.create_pool(
         host=os.getenv("DB_HOST", "localhost"),
@@ -24,7 +22,6 @@ async def create_pool() -> asyncpg.Pool:
 
 
 async def close_pool() -> None:
-    """Gracefully close the connection pool. Called on app shutdown."""
     global _pool
     if _pool:
         await _pool.close()
@@ -32,7 +29,6 @@ async def close_pool() -> None:
 
 
 def get_pool() -> asyncpg.Pool:
-    """Return the active pool. Raises if startup hasn't run yet."""
     if _pool is None:
         raise RuntimeError("Database pool is not initialised")
     return _pool
