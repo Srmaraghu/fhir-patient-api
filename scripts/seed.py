@@ -117,7 +117,14 @@ def blood_pressure_obs(patient_id: str, systolic: int, diastolic: int) -> dict:
 
 
 def office_visit_encounter(patient_id: str) -> dict:
-    """AMB office visit encounter"""
+    """
+    AMB office visit encounter.
+
+    Note: fhir.resources v8 (FHIR R4B/R5 aligned) changed two fields:
+      - Encounter.class  → list of CodeableConcept (was a single Coding in R4)
+      - Encounter.period → renamed to actualPeriod
+    These shapes are validated and accepted by the server's fhir.resources v8 models.
+    """
     return {
         "resourceType": "Encounter",
         "status": "finished",

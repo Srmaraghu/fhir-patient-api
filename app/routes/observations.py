@@ -53,13 +53,10 @@ def _extract_patient_id(observation: Observation) -> str | None:
 async def create_observation(observation: Observation, response: Response):
     patient_id = _extract_patient_id(observation)
     if not patient_id:
-        raise _bad_request(
-            "Observation.subject.reference must be set to 'Patient/<id>'"
-        )
+        raise _bad_request("Observation.subject.reference must be set to 'Patient/<id>'")
 
     pool = get_pool()
     async with pool.acquire() as conn:
-        # verify the referenced patient exists
         patient_exists = await conn.fetchval(
             "SELECT 1 FROM patients WHERE id = $1", patient_id
         )
@@ -125,34 +122,31 @@ async def list_observations(patient: str | None = None):
 # UPDATE (full replace)
 @router.put("/{obs_id}", status_code=status.HTTP_200_OK)
 async def update_observation(obs_id: str, observation: Observation):
-    # validate subject reference and patient existence
     patient_id = _extract_patient_id(observation)
     if not patient_id:
         raise _bad_request("Observation.subject.reference must be set to 'Patient/<id>'")
 
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        exists = await conn.fetchval(
-            "SELECT 1 FROM observations WHERE id = $1", obs_id
-        )
-
-    if not exists:
-        raise _not_found(obs_id)
-
-    async with pool.acquire() as conn:
-        patient_exists = await conn.fetchval(
-            "SELECT 1 FROM patients WHERE id = $1", patient_id
-        )
-    if not patient_exists:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Referenced Patient/{patient_id} does not exist",
-        )
-
     observation.id = obs_id
     resource_json = observation.model_dump_json()
 
+    pool = get_pool()
     async with pool.acquire() as conn:
+        # all checks + update in one connection — no TOCTOU window
+        exists = await conn.fetchval(
+            "SELECT 1 FROM observations WHERE id = $1", obs_id
+        )
+        if not exists:
+            raise _not_found(obs_id)
+
+        patient_exists = await conn.fetchval(
+            "SELECT 1 FROM patients WHERE id = $1", patient_id
+        )
+        if not patient_exists:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Referenced Patient/{patient_id} does not exist",
+            )
+
         await conn.execute(
             """
             UPDATE observations

@@ -24,6 +24,20 @@ def _not_found(enc_id: str) -> HTTPException:
     )
 
 
+def _bad_request(msg: str) -> HTTPException:
+    outcome = OperationOutcome(
+        issue=[{
+            "severity": "error",
+            "code": "invalid",
+            "details": {"text": msg},
+        }]
+    )
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=outcome.model_dump(),
+    )
+
+
 def _extract_patient_id(encounter: Encounter) -> str | None:
     """Pull patient id from subject.reference e.g. 'Patient/abc-123'."""
     if not encounter.subject or not encounter.subject.reference:
@@ -39,17 +53,7 @@ def _extract_patient_id(encounter: Encounter) -> str | None:
 async def create_encounter(encounter: Encounter, response: Response):
     patient_id = _extract_patient_id(encounter)
     if not patient_id:
-        outcome = OperationOutcome(
-            issue=[{
-                "severity": "error",
-                "code": "invalid",
-                "details": {"text": "Encounter.subject.reference must be set to 'Patient/<id>'"},
-            }]
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=outcome.model_dump(),
-        )
+        raise _bad_request("Encounter.subject.reference must be set to 'Patient/<id>'")
 
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -117,45 +121,31 @@ async def list_encounters(patient: str | None = None):
 # UPDATE (full replace)
 @router.put("/{enc_id}", status_code=status.HTTP_200_OK)
 async def update_encounter(enc_id: str, encounter: Encounter):
-    # validate subject reference
     patient_id = _extract_patient_id(encounter)
     if not patient_id:
-        outcome = OperationOutcome(
-            issue=[{
-                "severity": "error",
-                "code": "invalid",
-                "details": {"text": "Encounter.subject.reference must be set to 'Patient/<id>'"},
-            }]
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=outcome.model_dump(),
-        )
-
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        exists = await conn.fetchval(
-            "SELECT 1 FROM encounters WHERE id = $1", enc_id
-        )
-
-    if not exists:
-        raise _not_found(enc_id)
-
-    # verify the referenced patient exists
-    async with pool.acquire() as conn:
-        patient_exists = await conn.fetchval(
-            "SELECT 1 FROM patients WHERE id = $1", patient_id
-        )
-    if not patient_exists:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Referenced Patient/{patient_id} does not exist",
-        )
+        raise _bad_request("Encounter.subject.reference must be set to 'Patient/<id>'")
 
     encounter.id = enc_id
     resource_json = encounter.model_dump_json()
 
+    pool = get_pool()
     async with pool.acquire() as conn:
+        # verify encounter exists and patient exists in one connection
+        exists = await conn.fetchval(
+            "SELECT 1 FROM encounters WHERE id = $1", enc_id
+        )
+        if not exists:
+            raise _not_found(enc_id)
+
+        patient_exists = await conn.fetchval(
+            "SELECT 1 FROM patients WHERE id = $1", patient_id
+        )
+        if not patient_exists:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Referenced Patient/{patient_id} does not exist",
+            )
+
         await conn.execute(
             """
             UPDATE encounters
