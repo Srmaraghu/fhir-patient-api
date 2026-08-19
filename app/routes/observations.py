@@ -125,6 +125,11 @@ async def list_observations(patient: str | None = None):
 # UPDATE (full replace)
 @router.put("/{obs_id}", status_code=status.HTTP_200_OK)
 async def update_observation(obs_id: str, observation: Observation):
+    # validate subject reference and patient existence
+    patient_id = _extract_patient_id(observation)
+    if not patient_id:
+        raise _bad_request("Observation.subject.reference must be set to 'Patient/<id>'")
+
     pool = get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval(
@@ -134,6 +139,16 @@ async def update_observation(obs_id: str, observation: Observation):
     if not exists:
         raise _not_found(obs_id)
 
+    async with pool.acquire() as conn:
+        patient_exists = await conn.fetchval(
+            "SELECT 1 FROM patients WHERE id = $1", patient_id
+        )
+    if not patient_exists:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Referenced Patient/{patient_id} does not exist",
+        )
+
     observation.id = obs_id
     resource_json = observation.model_dump_json()
 
@@ -142,11 +157,13 @@ async def update_observation(obs_id: str, observation: Observation):
             """
             UPDATE observations
             SET resource   = $2::jsonb,
+                patient_id = $3,
                 updated_at = NOW()
             WHERE id = $1
             """,
             obs_id,
             resource_json,
+            patient_id,
         )
 
     return json.loads(resource_json)

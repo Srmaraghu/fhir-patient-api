@@ -117,6 +117,21 @@ async def list_encounters(patient: str | None = None):
 # UPDATE (full replace)
 @router.put("/{enc_id}", status_code=status.HTTP_200_OK)
 async def update_encounter(enc_id: str, encounter: Encounter):
+    # validate subject reference
+    patient_id = _extract_patient_id(encounter)
+    if not patient_id:
+        outcome = OperationOutcome(
+            issue=[{
+                "severity": "error",
+                "code": "invalid",
+                "details": {"text": "Encounter.subject.reference must be set to 'Patient/<id>'"},
+            }]
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=outcome.model_dump(),
+        )
+
     pool = get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval(
@@ -126,6 +141,17 @@ async def update_encounter(enc_id: str, encounter: Encounter):
     if not exists:
         raise _not_found(enc_id)
 
+    # verify the referenced patient exists
+    async with pool.acquire() as conn:
+        patient_exists = await conn.fetchval(
+            "SELECT 1 FROM patients WHERE id = $1", patient_id
+        )
+    if not patient_exists:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Referenced Patient/{patient_id} does not exist",
+        )
+
     encounter.id = enc_id
     resource_json = encounter.model_dump_json()
 
@@ -134,11 +160,13 @@ async def update_encounter(enc_id: str, encounter: Encounter):
             """
             UPDATE encounters
             SET resource   = $2::jsonb,
+                patient_id = $3,
                 updated_at = NOW()
             WHERE id = $1
             """,
             enc_id,
             resource_json,
+            patient_id,
         )
 
     return json.loads(resource_json)
