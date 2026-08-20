@@ -25,10 +25,15 @@ from app import database
 
 def pytest_sessionstart(session):
     """
-    Create fhirdb_test and tables once before any tests run.
-    Runs synchronously so there's no event loop conflict.
+    Create fhirdb_test and tables before any tests run.
+
+    The DROP + CREATE is guarded by CI_RESET_TEST_DB=true so local developers
+    running pytest against a shared database don't accidentally wipe it.
+    Set CI_RESET_TEST_DB=true in your environment to enable the reset.
     """
     async def _create_db():
+        reset = os.getenv("CI_RESET_TEST_DB", "false").lower() == "true"
+
         sys_conn = await asyncpg.connect(
             host=os.getenv("DB_HOST", "localhost"),
             port=int(os.getenv("DB_PORT", 5432)),
@@ -36,13 +41,17 @@ def pytest_sessionstart(session):
             user=os.getenv("DB_USER", "fhiruser"),
             password=os.getenv("DB_PASSWORD", "fhirpassword"),
         )
-        await sys_conn.execute("""
-            SELECT pg_terminate_backend(pid)
-            FROM pg_stat_activity
-            WHERE datname = 'fhirdb_test' AND pid <> pg_backend_pid()
-        """)
-        await sys_conn.execute("DROP DATABASE IF EXISTS fhirdb_test")
-        await sys_conn.execute("CREATE DATABASE fhirdb_test")
+
+        if reset:
+            # terminate existing connections so DROP DATABASE succeeds
+            await sys_conn.execute("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = 'fhirdb_test' AND pid <> pg_backend_pid()
+            """)
+            await sys_conn.execute("DROP DATABASE IF EXISTS fhirdb_test")
+            await sys_conn.execute("CREATE DATABASE fhirdb_test")
+
         await sys_conn.close()
 
         conn = await asyncpg.connect(

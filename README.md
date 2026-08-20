@@ -109,6 +109,8 @@ curl -X POST http://localhost:8000/Patient \
 
 **Create an Observation linked to a Patient**
 
+First create a patient and copy the `id` from the response, then:
+
 ```bash
 curl -X POST http://localhost:8000/Observation \
   -H "Content-Type: application/json" \
@@ -140,4 +142,4 @@ curl http://localhost:8000/Patient?family=Smith
 | PostgreSQL | Storage (JSONB) |
 | Docker | Local infrastructure |
 | pytest + httpx | Testing |
-| GitHub Actions | CI/CD |
+| GitHub Actions | CI (runs tests on push and PR) |

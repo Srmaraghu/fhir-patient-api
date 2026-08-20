@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: ["main"]
 
+# Cancel in-progress runs for the same PR or branch to save CI minutes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: only read repo contents
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -31,10 +40,14 @@ jobs:
       DB_NAME: fhirdb
       DB_USER: fhiruser
       DB_PASSWORD: fhirpassword
+      # tells conftest.py it is safe to drop/recreate fhirdb_test
+      CI_RESET_TEST_DB: "true"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
