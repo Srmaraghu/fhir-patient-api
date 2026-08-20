@@ -2,11 +2,37 @@
 
 An async REST API built with FastAPI that serves FHIR R4 resources — Patient, Observation, and Encounter. Designed as the read/API layer of a healthcare data platform, paired with the [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline) that writes data into the same PostgreSQL database.
 
+## Part of a two-project healthcare platform
+
+This API is the **read side** of a healthcare data platform. It pairs with [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline) which is the **write side** — an HL7 v2 ingestion pipeline that parses hospital messages and stores them as FHIR resources.
+
+```
+HL7 v2 message (.hl7 file)
+          ↓
+  hl7-fhir-pipeline        ← github.com/Srmaraghu/hl7-fhir-pipeline
+  (parse, validate,
+   transform, write)
+          ↓
+     PostgreSQL
+     (fhirdb)
+      patients
+    observations
+          ↓
+  fhir-patient-api         ← YOU ARE HERE
+  (FHIR REST API,
+   read/serve)
+          ↓
+GET /Patient/{id}
+GET /Observation?patient={id}
+```
+
+Both projects share the same `fhirdb` PostgreSQL database and the same table schema. Run the pipeline to ingest an HL7 message, then immediately query it through this API. That's the demo: HL7 goes in one side, FHIR REST comes out the other.
+
 ## Architecture
 
 ```
 hl7-fhir-pipeline          fhir-patient-api
-(writes data)         →    PostgreSQL    ←    (reads data via REST)
+(writes via psycopg)  →    PostgreSQL (fhirdb)    ←    (reads via asyncpg)
                                │
                          ┌─────┼──────┐
                          │     │      │
