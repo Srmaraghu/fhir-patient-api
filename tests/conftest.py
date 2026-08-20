@@ -42,6 +42,12 @@ def pytest_sessionstart(session):
             password=os.getenv("DB_PASSWORD", "fhirpassword"),
         )
 
+        # check if fhirdb_test exists before deciding what to do
+        database_exists = await sys_conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = $1",
+            "fhirdb_test",
+        )
+
         if reset:
             # terminate existing connections so DROP DATABASE succeeds
             await sys_conn.execute("""
@@ -50,6 +56,8 @@ def pytest_sessionstart(session):
                 WHERE datname = 'fhirdb_test' AND pid <> pg_backend_pid()
             """)
             await sys_conn.execute("DROP DATABASE IF EXISTS fhirdb_test")
+
+        if reset or not database_exists:
             await sys_conn.execute("CREATE DATABASE fhirdb_test")
 
         await sys_conn.close()
