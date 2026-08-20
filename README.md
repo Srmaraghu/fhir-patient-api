@@ -1,12 +1,12 @@
 # FHIR Patient API
 
-An async REST API built with FastAPI that serves FHIR R4 resources — Patient, Observation, and Encounter. Designed as the read/API layer of a healthcare data platform, paired with the [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline) that writes data into the same PostgreSQL database.
+An async REST API built with FastAPI that exposes FHIR R4 resources — Patient, Observation, and Encounter — with full CRUD support. Paired with the [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline) that ingests HL7 v2 messages and writes them into the same PostgreSQL database.
 
 ## Part of a two-project healthcare platform
 
-This API is the **read side** of a healthcare data platform. It pairs with [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline) which is the **write side** — an HL7 v2 ingestion pipeline that parses hospital messages and stores them as FHIR resources.
+This API is the **FHIR REST layer** of a healthcare data platform — it supports full CRUD for Patient, Observation, and Encounter resources. It pairs with [hl7-fhir-pipeline](https://github.com/Srmaraghu/hl7-fhir-pipeline), an HL7 v2 ingestion pipeline that parses hospital messages, transforms them to FHIR, and writes them into the same PostgreSQL database.
 
-```
+```text
 HL7 v2 message (.hl7 file)
           ↓
   hl7-fhir-pipeline        ← github.com/Srmaraghu/hl7-fhir-pipeline
@@ -20,19 +20,20 @@ HL7 v2 message (.hl7 file)
           ↓
   fhir-patient-api         ← YOU ARE HERE
   (FHIR REST API,
-   read/serve)
+   full CRUD read/write)
           ↓
 GET /Patient/{id}
+POST /Patient
 GET /Observation?patient={id}
 ```
 
-Both projects share the same `fhirdb` PostgreSQL database and the same table schema. Run the pipeline to ingest an HL7 message, then immediately query it through this API. That's the demo: HL7 goes in one side, FHIR REST comes out the other.
+Both projects share the same `fhirdb` PostgreSQL database and the same table schema. Run the pipeline to ingest an HL7 message, then immediately query or update it through this API. That's the demo: HL7 goes in one side, FHIR REST comes out the other.
 
 ## Architecture
 
-```
+```text
 hl7-fhir-pipeline          fhir-patient-api
-(writes via psycopg)  →    PostgreSQL (fhirdb)    ←    (reads via asyncpg)
+(writes via psycopg)  →    PostgreSQL (fhirdb)    ←    (reads/writes via asyncpg)
                                │
                          ┌─────┼──────┐
                          │     │      │
